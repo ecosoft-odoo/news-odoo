@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odoo Daily News</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 min-h-screen">
+    <div class="max-w-4xl mx-auto p-6 space-y-6">
+
+        <header>
+            <h1 class="text-3xl font-bold text-slate-800">📰 Odoo Daily News</h1>
+            <p class="text-slate-600 text-sm">ตั้งค่าและรัน Daily News สำหรับ GitHub repo ใดก็ได้</p>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, msg in messages %}
+        <div class="p-4 rounded-lg {{ 'bg-green-100 text-green-800 border border-green-300' if category == 'success' else 'bg-red-100 text-red-800 border border-red-300' }}">
+            {{ msg }}
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="/save" class="bg-white rounded-lg shadow p-6 space-y-6">
+            <h2 class="text-xl font-semibold text-slate-800">⚙️ Configuration</h2>
+
+            <fieldset class="space-y-3">
+                <legend class="font-semibold text-slate-700 border-b pb-1 w-full">🐙 GitHub</legend>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm text-slate-600 mb-1">Repository <span class="text-slate-400">(owner/name)</span></label>
+                        <input name="github_repo" value="{{ config.github_repo }}" placeholder="odoo/odoo" class="w-full border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-blue-500" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-slate-600 mb-1">Branch</label>
+                        <input name="github_branch" value="{{ config.github_branch }}" placeholder="18.0" class="w-full border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-blue-500" required>
+                    </div>
+                </div>
+            </fieldset>
+
+            <fieldset class="space-y-3">
+                <legend class="font-semibold text-slate-700 border-b pb-1 w-full">🤖 AI (Groq)</legend>
+                <div>
+                    <label class="block text-sm text-slate-600 mb-1">Model</label>
+                    <select name="groq_model" class="w-full border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-blue-500">
+                        <option value="llama-3.3-70b-versatile" {% if config.groq_model == 'llama-3.3-70b-versatile' %}selected{% endif %}>llama-3.3-70b-versatile (แนะนำ)</option>
+                        <option value="llama-3.1-8b-instant" {% if config.groq_model == 'llama-3.1-8b-instant' %}selected{% endif %}>llama-3.1-8b-instant (เร็ว)</option>
+                        <option value="mixtral-8x7b-32768" {% if config.groq_model == 'mixtral-8x7b-32768' %}selected{% endif %}>mixtral-8x7b-32768</option>
+                    </select>
+                </div>
+            </fieldset>
+
+            <fieldset class="space-y-3">
+                <legend class="font-semibold text-slate-700 border-b pb-1 w-full">📝 Custom Prompt <span class="text-slate-400 font-normal">(optional)</span></legend>
+                <textarea name="custom_prompt" rows="4" class="w-full border border-slate-300 rounded px-3 py-2 font-mono text-xs focus:outline-none focus:border-blue-500" placeholder="ปล่อยว่างเพื่อใช้ default prompt. ใช้ placeholders: {repo} {branch} {date} {count} {commits}">{{ config.custom_prompt }}</textarea>
+            </fieldset>
+
+            <div class="flex gap-3">
+                <button type="submit" class="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 font-medium">💾 Save</button>
+            </div>
+        </form>
+
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold text-slate-800 mb-3">🔐 Secrets Status <span class="text-sm text-slate-500 font-normal">(อ่านจาก <code>.env</code>)</span></h2>
+            <div class="space-y-2 text-sm">
+                <div class="flex items-center gap-3">
+                    <span class="text-lg {% if env.groq_api_key %}text-green-600{% else %}text-red-600{% endif %}">{% if env.groq_api_key %}✓{% else %}✗{% endif %}</span>
+                    <code class="bg-slate-100 px-2 py-1 rounded">GROQ_API_KEY</code>
+                    <span class="text-slate-600">{{ 'set' if env.groq_api_key else 'MISSING — required' }}</span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="text-lg {% if env.discord_webhook_url %}text-green-600{% else %}text-red-600{% endif %}">{% if env.discord_webhook_url %}✓{% else %}✗{% endif %}</span>
+                    <code class="bg-slate-100 px-2 py-1 rounded">DISCORD_WEBHOOK_URL</code>
+                    <span class="text-slate-600">{{ 'set' if env.discord_webhook_url else 'MISSING — required' }}</span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="text-lg {% if env.github_token %}text-green-600{% else %}text-slate-400{% endif %}">{% if env.github_token %}✓{% else %}○{% endif %}</span>
+                    <code class="bg-slate-100 px-2 py-1 rounded">GITHUB_TOKEN</code>
+                    <span class="text-slate-600">{{ 'set' if env.github_token else 'optional (เพิ่ม rate limit)' }}</span>
+                </div>
+            </div>
+            <p class="text-xs text-slate-500 mt-3">แก้ที่ <code class="bg-slate-100 px-1 rounded">.env</code> แล้ว restart web app</p>
+        </div>
+
+        <form method="POST" action="/run" class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold text-slate-800 mb-2">▶️ Manual Run</h2>
+            <p class="text-sm text-slate-600 mb-3">รัน summary ของวันที่เลือกตอนนี้เลย ใช้เวลา ~10–30 วินาที</p>
+            <div class="mb-3">
+                <label class="block text-sm text-slate-600 mb-1">Date <span class="text-slate-400">(YYYY-MM-DD, ปล่อยว่าง = เมื่อวาน ICT)</span></label>
+                <input type="date" name="date" class="border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-blue-500">
+            </div>
+            <button type="submit" class="bg-green-600 text-white px-5 py-2 rounded hover:bg-green-700 font-medium" {{ 'disabled' if not (env.groq_api_key and env.discord_webhook_url) }}>Run Now</button>
+            {% if not (env.groq_api_key and env.discord_webhook_url) %}
+            <p class="text-xs text-red-600 mt-2">⚠️ ต้องตั้ง GROQ_API_KEY และ DISCORD_WEBHOOK_URL ใน .env ก่อน</p>
+            {% endif %}
+        </form>
+
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold text-slate-800">📜 Recent Runs <span class="text-sm text-slate-500 font-normal">(last 10)</span></h2>
+                {% if history %}
+                <form method="POST" action="/history/clear">
+                    <button type="submit" class="text-sm text-red-600 hover:underline">Clear</button>
+                </form>
+                {% endif %}
+            </div>
+            {% if history %}
+            <div class="space-y-2">
+                {% for run in history %}
+                <div class="border-l-4 {{ 'border-green-500 bg-green-50' if run.status == 'success' else 'border-red-500 bg-red-50' }} p-3 rounded">
+                    <div class="flex items-center gap-3">
+                        <span class="font-mono text-xs text-slate-600">{{ run.timestamp }}</span>
+                        <span class="font-semibold {{ 'text-green-700' if run.status == 'success' else 'text-red-700' }}">
+                            {{ '✓ Success' if run.status == 'success' else '✗ Error' }}
+                        </span>
+                    </div>
+                    <pre class="mt-2 text-xs bg-white p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-48">{{ (run.stdout or run.stderr or '').strip() }}</pre>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-slate-500 text-sm">ยังไม่มี run</p>
+            {% endif %}
+        </div>
+
+        <footer class="text-center text-xs text-slate-500 py-4">
+            Schedule ผ่าน GitHub Actions (cron 17:00 UTC = 00:00 ICT) · เว็บนี้รันที่ <code>http://localhost:5000</code>
+        </footer>
+
+    </div>
+</body>
+</html>

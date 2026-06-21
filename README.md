@@ -1,59 +1,90 @@
 # Odoo Daily News
 
-Fetch GitHub commits → summarize with Groq LLM → post to Discord webhook.
-Includes a Flask web UI for config + manual run + auto-schedule.
+Fetch GitHub commits → summarize with Groq LLM → post to Discord.
 
-## Quick Start (Local)
+**Zero dependencies.** Runs entirely on GitHub Actions — no server, no database, no build step.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-# edit .env with real GROQ_API_KEY, DISCORD_WEBHOOK_URL
-python3 app.py
-# open http://localhost:5000
+## Setup (2 minutes)
+
+### 1. Fork or push this repo to GitHub
+
+### 2. Add secrets
+
+`Settings → Secrets and variables → Actions → New repository secret`
+
+| Name | Required | Where to get |
+|---|---|---|
+| `GROQ_API_KEY` | ✅ | https://console.groq.com/keys |
+| `DISCORD_WEBHOOK_URL` | ✅ | Discord → Channel Settings → Integrations → Webhooks → New |
+
+> `GITHUB_TOKEN` is auto-provided by GitHub (raises API rate limit 60 → 5000 req/hr).
+
+### 3. Run it
+
+Go to **Actions → Odoo Daily News → Run workflow**
+
+- **First time:** tick `dry_run` to test without posting to Discord
+- **After that:** leave unticked → posts daily at 00:00 ICT automatically
+
+## Configure
+
+### Change repo / branch / schedule
+
+Edit `.github/workflows/daily-news.yml`:
+
+```yaml
+# Change schedule time (cron UTC — 17:00 UTC = 00:00 ICT)
+schedule:
+  - cron: '0 17 * * *'
+
+# Subscribe to more repos — edit the TARGETS line:
+TARGETS='[{"repo":"odoo/odoo","branch":"18.0"}]'
 ```
 
-## Production (Server with systemd)
+### Override per manual run
+
+When clicking **Run workflow** in GitHub Actions:
+
+| Input | Description | Default |
+|---|---|---|
+| `date` | `YYYY-MM-DD` — empty = yesterday ICT | yesterday |
+| `repo` | Override with single repo (`owner/name`) | matrix repos |
+| `branch` | Branch for single-repo override | `18.0` |
+| `dry_run` | Fetch only, no Groq/Discord | off |
+
+## Test locally (optional)
+
+No install needed — Python 3.9+ stdlib only.
 
 ```bash
-# 1. setup
-cd /srv/daily-news  # or wherever
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-nano .env   # fill in GROQ_API_KEY, DISCORD_WEBHOOK_URL
+# Dry-run (no API keys needed)
+python3 scripts/fetch_and_post.py --dry-run
+python3 scripts/fetch_and_post.py 2026-06-12 --dry-run
+python3 scripts/fetch_and_post.py --repo OCA/l10n-thailand --branch 18.0 --dry-run
 
-# 2. install systemd service
-sudo cp scripts/daily-news-web.service /etc/systemd/system/
-sudo sed -i 's|/path/to/daily-news|/srv/daily-news|g' /etc/systemd/system/daily-news-web.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now daily-news-web
-sudo systemctl status daily-news-web
-
-# 3. logs
-journalctl -u daily-news-web -f
+# Full run (needs GROQ_API_KEY + DISCORD_WEBHOOK_URL in env)
+GROQ_API_KEY=gsk_... DISCORD_WEBHOOK_URL=https://... python3 scripts/fetch_and_post.py
 ```
 
-## Auto Schedule
+## Project structure
 
-The Flask app uses **APScheduler** to run the job in-process.
-Configure via the web UI (`⏰ Auto Schedule` section) — no crontab needed.
+```
+odoo-daily-news/
+├── .env.example                 # secrets template (copy → .env for local)
+├── .gitignore
+├── news.py                      # core logic: fetch → summarize → post
+├── scripts/
+│   └── fetch_and_post.py        # CLI wrapper (for local testing)
+└── .github/
+    └── workflows/
+        └── daily-news.yml       # GitHub Actions (this is the real runner)
+```
 
-Default: every day at **00:00 Asia/Bangkok**.
+## How it works
 
-## Manual Run
+1. **GitHub Actions** triggers daily at 00:00 ICT (or manual)
+2. **`news.py`** fetches commits from GitHub API for the given date (ICT timezone)
+3. **Groq LLM** summarizes commits into a Thai digest
+4. **Discord webhook** posts the summary to your channel
 
-Use the web UI (`▶️ Manual Run` section) to run with a specific date.
-
-## Required GitHub Secrets (for GitHub Actions only)
-
-If you also want GitHub Actions to run the cron (optional, no need if using systemd):
-
-- `GROQ_API_KEY`
-- `DISCORD_WEBHOOK_URL`
-- `GITHUB_TOKEN` (auto-provided)
-
-Set at: `Settings → Secrets and variables → Actions`
+All logic lives in `news.py` (~250 lines). No third-party packages.

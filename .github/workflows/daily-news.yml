@@ -1,22 +1,62 @@
-name: Odoo 18.0 Daily News
+name: Odoo Daily News
 
 on:
   schedule:
+    # 17:00 UTC = 00:00 ICT (Asia/Bangkok) next day
     - cron: '0 17 * * *'
   workflow_dispatch:
     inputs:
       date:
-        description: 'Date (YYYY-MM-DD), empty = yesterday ICT (Asia/Bangkok)'
+        description: 'Date (YYYY-MM-DD), empty = yesterday ICT'
         required: false
         type: string
         default: ''
+      repo:
+        description: 'Override matrix with a single repo (owner/name). Empty = run all matrix repos.'
+        required: false
+        type: string
+        default: ''
+      branch:
+        description: 'Override branch (only used with single-repo override). Default 18.0.'
+        required: false
+        type: string
+        default: ''
+      dry_run:
+        description: 'Dry-run (fetch + summarise, no Discord post)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
-  daily-news:
+  resolve-targets:
     runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.set.outputs.targets }}
+    steps:
+      - id: set
+        run: |
+          # Default subscription list. Edit here to add/remove repos.
+          # Manual single-repo override wins.
+          if [ -n "${{ github.event.inputs.repo }}" ]; then
+            BR="${{ github.event.inputs.branch }}"
+            [ -z "$BR" ] && BR="18.0"
+            TARGETS="[{\"repo\":\"${{ github.event.inputs.repo }}\",\"branch\":\"$BR\"}]"
+          else
+            TARGETS='[{"repo":"odoo/odoo","branch":"18.0"}]'
+          fi
+          echo "targets=$TARGETS" >> "$GITHUB_OUTPUT"
+          echo "Resolved targets: $TARGETS"
+
+  daily-news:
+    needs: resolve-targets
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.resolve-targets.outputs.targets) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -29,5 +69,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DATE: ${{ github.event.inputs.date }}
-        run: python scripts/fetch_and_post.py
+        run: |
+          python scripts/fetch_and_post.py "${{ github.event.inputs.date }}" \
+            --repo "${{ matrix.target.repo }}" \
+            --branch "${{ matrix.target.branch }}" \
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}

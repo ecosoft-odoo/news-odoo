@@ -2,27 +2,27 @@ name: Odoo Daily News
 
 on:
   schedule:
-    # 17:00 UTC = 00:00 ICT (Asia/Bangkok) next day
-    - cron: '0 17 * * *'
+    # 00:00 UTC = 07:00 ICT (Asia/Bangkok)
+    - cron: "0 0 * * *"
   workflow_dispatch:
     inputs:
       date:
-        description: 'Date (YYYY-MM-DD), empty = yesterday ICT'
+        description: "Date (YYYY-MM-DD), empty = yesterday ICT"
         required: false
         type: string
-        default: ''
+        default: ""
       repo:
-        description: 'Override matrix with a single repo (owner/name). Empty = run all matrix repos.'
+        description: "Override matrix with a single repo (owner/name). Empty = run all matrix repos."
         required: false
         type: string
-        default: ''
+        default: ""
       branch:
-        description: 'Override branch (only used with single-repo override). Default 18.0.'
+        description: "Override branch (only used with single-repo override). Default 18.0."
         required: false
         type: string
-        default: ''
+        default: ""
       dry_run:
-        description: 'Dry-run (fetch + summarise, no Discord post)'
+        description: "Dry-run (fetch + summarise, no Discord post)"
         required: false
         type: boolean
         default: false
@@ -62,7 +62,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Run daily news
         env:

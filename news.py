@@ -29,6 +29,9 @@ ICT = ZoneInfo("Asia/Bangkok")
 
 log = logging.getLogger("odoo_news")
 
+# Modules to keep despite l10n prefix (whitelist).
+_L10N_WHITELIST = frozenset({"l10n_th", "l10n_account_withholding_tax"})
+
 DEFAULT_PROMPT_TEMPLATE = """\
 You are summarizing {repo}@{branch} commits for {date}.
 Total commits: {count}
@@ -60,6 +63,8 @@ Group by category. Skip empty categories:
 **สรุป:** [2-3 sentences in Thai]
 
 If >20 commits, prioritize the most impactful and add "(+X more)" in each category.
+
+IMPORTANT: Do NOT use Discord embeds. Output plain text only.
 """
 
 
@@ -138,7 +143,10 @@ def _http_json(url: str, *, method: str = "GET", headers: dict | None = None,
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            body = resp.read().decode("utf-8")
+            if not body.strip():
+                return None
+            return json.loads(body)
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         raise NewsError(f"{label or 'HTTP'} error {e.code}: {body[:400]}") from e
@@ -159,6 +167,42 @@ def extract_pr_url(commit: dict, repo: str) -> str:
     return commit.get("html_url", "")
 
 
+def _is_l10n_excluded(commit: dict) -> bool:
+    """Return True if this commit is an l10n/i18n commit that should be skipped.
+
+    Checks commit subject line first (fast, no extra API calls).
+    Falls back to file paths if available (commits fetched with per_page detail).
+    Whitelisted modules: l10n_th, l10n_account_withholding_tax.
+    """
+    subject = commit.get("commit", {}).get("message", "").split("\n")[0].lower()
+
+    # Fast path: match common l10n subject patterns.
+    # e.g. "[FIX] l10n_fr: ..." / "[IMP] l10n_fr_pdp: ..."
+    if re.match(r"\[(?:fix|imp|ref|rev|mov|add|upd|clf|mig)\s*\]\s*l10n_", subject):
+        mod_match = re.search(r"\bl10n_(\w+)", subject)
+        if mod_match:
+            mod = f"l10n_{mod_match.group(1)}"
+            return mod not in _L10N_WHITELIST
+        return True  # Unknown l10n module, skip.
+
+    # Also catch patterns like "update l10n_xx translations"
+    if re.search(r"\bl10n_(?:\w+_)*translation", subject):
+        return True
+
+    # Slow path: check file paths (only present if fetched with detail).
+    affected = commit.get("files")
+    if not affected:
+        return False
+    for f in affected:
+        if not re.match(r"^(addons/)?l10n_[a-z]+(/|$|\.)", f.get("filename", "")):
+            return False  # At least one non-l10n file → keep
+    for f in affected:
+        m = re.match(r"(?:addons/)?(l10n_[a-z_]+)", f.get("filename", ""))
+        if m and m.group(1) in _L10N_WHITELIST:
+            return False  # Whitelisted module → keep
+    return True
+
+
 def fetch_commits(repo: str, branch: str, date_str: str,
                   token: str = "", max_pages: int = 10) -> list[dict]:
     """Fetch all commits on `branch` of `repo` within the ICT day `date_str`."""
@@ -171,6 +215,7 @@ def fetch_commits(repo: str, branch: str, date_str: str,
         headers["Authorization"] = f"Bearer {token}"
 
     commits: list[dict] = []
+    skipped_l10n = 0
     for page in range(1, max_pages + 1):
         url = (
             f"{GITHUB_API}/repos/{repo}/commits"
@@ -179,9 +224,15 @@ def fetch_commits(repo: str, branch: str, date_str: str,
         data = _http_json(url, headers=headers, timeout=30, label="GitHub")
         if not data:
             break
-        commits.extend(data)
+        for c in data:
+            if _is_l10n_excluded(c):
+                skipped_l10n += 1
+            else:
+                commits.append(c)
         if len(data) < 100:
             break
+    if skipped_l10n:
+        log.info("      Skipped %d l10n/i18n commits", skipped_l10n)
     return commits
 
 

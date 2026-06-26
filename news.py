@@ -45,8 +45,6 @@ Output a Discord digest (max 2000 chars) in this compact format:
 📰 **{repo}@{branch} Daily News** — {date}
 {count} commits
 
-**Overview:** [1-2 sentences in Thai]
-
 For each commit, use exactly 2 lines with a blank line between commits:
 
 • **[TAG] module**: short commit name — สรุปสั้นๆ (1 ประโยค)
@@ -59,8 +57,6 @@ Group by category. Skip empty categories:
 🔧 **Refactor**
 📝 **Docs/Tests**
 ⚠️ **Breaking Changes**
-
-**สรุป:** [2-3 sentences in Thai]
 
 If >20 commits, prioritize the most impactful and add "(+X more)" in each category.
 

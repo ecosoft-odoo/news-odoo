@@ -2,8 +2,8 @@ name: Odoo Daily News
 
 on:
   schedule:
-    # 00:00 UTC = 07:00 ICT (Asia/Bangkok)
-    - cron: "0 0 * * *"
+    # 20:00 UTC = 03:00 ICT (Asia/Bangkok) — 4 hours earlier than before
+    - cron: "0 20 * * *"
   workflow_dispatch:
     inputs:
       date:
@@ -22,7 +22,7 @@ on:
         type: string
         default: ""
       dry_run:
-        description: "Dry-run (fetch + summarise, no Discord post)"
+        description: "Dry-run (fetch, no Discord post)"
         required: false
         type: boolean
         default: false
@@ -67,7 +67,6 @@ jobs:
       - name: Run daily news
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           python scripts/fetch_and_post.py "${{ github.event.inputs.date }}" \

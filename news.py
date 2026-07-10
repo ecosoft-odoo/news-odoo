@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Core module for Odoo Daily News.
 
-Fetch GitHub commits for a given date → summarize with Groq LLM → post to Discord.
+Fetch GitHub commits for a given date → post commit name + PR link to Discord.
+
+No LLM / summarisation step. Each commit is posted as a single line:
+`• <commit subject> — <PR or commit URL>`.
 
 Importable from CLI, Flask app, or any other Python code. No sys.exit() here —
 functions raise or return result dicts so callers can handle errors themselves.
@@ -23,7 +26,6 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 GITHUB_API = "https://api.github.com"
-GROQ_API = "https://api.groq.com/openai/v1/chat/completions"
 USER_AGENT = "odoo-daily-news/2.0"
 ICT = ZoneInfo("Asia/Bangkok")
 
@@ -31,37 +33,6 @@ log = logging.getLogger("odoo_news")
 
 # Modules to keep despite l10n prefix (whitelist).
 _L10N_WHITELIST = frozenset({"l10n_th", "l10n_account_withholding_tax"})
-
-DEFAULT_PROMPT_TEMPLATE = """\
-You are summarizing {repo}@{branch} commits for {date}.
-Total commits: {count}
-
-Each commit: name (first line of message) - PR_URL.
-
-{commits}
-
-Output a Discord digest (max 2000 chars) in this compact format:
-
-📰 **{repo}@{branch} Daily News** — {date}
-{count} commits
-
-For each commit, use exactly 2 lines with a blank line between commits:
-
-• **[TAG] module**: short commit name — สรุปสั้นๆ (1 ประโยค)
-  <PR_URL>
-
-Group by category. Skip empty categories:
-🐛 **Bug Fixes**
-✨ **New Features**
-⚡ **Performance**
-🔧 **Refactor**
-📝 **Docs/Tests**
-⚠️ **Breaking Changes**
-
-If >20 commits, prioritize the most impactful and add "(+X more)" in each category.
-
-IMPORTANT: Do NOT use Discord embeds. Output plain text only.
-"""
 
 
 @dataclass
@@ -233,51 +204,14 @@ def fetch_commits(repo: str, branch: str, date_str: str,
 
 
 def _format_commit_lines(commits: list[dict], repo: str, limit: int = 60) -> str:
-    lines = []
+    """Build the full Discord message: header + one line per commit + footer."""
+    lines = [f"📰 **{repo} Daily News** — {len(commits)} commit(s)"]
     for c in commits[:limit]:
         msg = c.get("commit", {}).get("message", "").split("\n")[0][:120]
-        lines.append(f"- {msg} - {extract_pr_url(c, repo)}")
+        lines.append(f"• {msg} — {extract_pr_url(c, repo)}")
     if len(commits) > limit:
-        lines.append(f"- ... and {len(commits) - limit} more commits")
+        lines.append(f"• ... and {len(commits) - limit} more commits")
     return "\n".join(lines)
-
-
-def build_prompt(commits: list[dict], repo: str, branch: str,
-                 date_str: str, custom_prompt: str = "") -> str:
-    commits_text = _format_commit_lines(commits, repo)
-    template = custom_prompt or DEFAULT_PROMPT_TEMPLATE
-    return template.format(
-        repo=repo,
-        branch=branch,
-        date=date_str,
-        count=len(commits),
-        commits=commits_text,
-    )
-
-
-def summarize(commits: list[dict], repo: str, branch: str, date_str: str,
-              api_key: str, model: str, custom_prompt: str = "") -> str:
-    if not commits:
-        return f"_ไม่มี commit ในวันที่ {date_str} ({repo}@{branch})_"
-
-    prompt = build_prompt(commits, repo, branch, date_str, custom_prompt)
-    result = _http_json(
-        GROQ_API,
-        method="POST",
-        headers={"Authorization": f"Bearer {api_key}"},
-        payload={
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 2000,
-            "temperature": 0.3,
-        },
-        timeout=90,
-        label="Groq",
-    )
-    try:
-        return result["choices"][0]["message"]["content"]
-    except (KeyError, IndexError) as e:
-        raise NewsError(f"Unexpected Groq response shape: {result!r}") from e
 
 
 def post_discord(webhook: str, content: str) -> int:
@@ -303,46 +237,41 @@ def run(
     repo: str,
     branch: str,
     date: str = "",
-    groq_api_key: str = "",
     discord_webhook: str = "",
     github_token: str = "",
-    model: str = "llama-3.3-70b-versatile",
-    custom_prompt: str = "",
     dry_run: bool = False,
 ) -> NewsResult:
     """Run the full pipeline. Always returns a NewsResult, never sys.exit().
 
+    Posts each commit as a single line (name + PR/commit link) to Discord.
+    No LLM summarisation step.
+
     date: "" → yesterday in ICT.
-    dry_run: fetch commits + (optionally) summarise, but never post to Discord.
+    dry_run: fetch commits but never post to Discord.
     """
     result = NewsResult(repo=repo, branch=branch, date=date or "(yesterday)", dry_run=dry_run)
 
     try:
         resolved = resolve_date(date)
         result.date = resolved
-        log.info("[1/3] Fetching commits for %s@%s on %s", repo, branch, resolved)
+        log.info("[1/2] Fetching commits for %s@%s on %s", repo, branch, resolved)
         commits = fetch_commits(repo, branch, resolved, github_token)
         result.commit_count = len(commits)
         log.info("      Found %d commits", len(commits))
 
+        if not commits:
+            summary = f"_ไม่มี commit ในวันที่ {resolved} ({repo}@{branch})_"
+        else:
+            summary = _format_commit_lines(commits, repo)
+
         if dry_run:
-            result.summary = _format_commit_lines(commits, repo)
+            result.summary = summary
             result.status = "success"
             return result
 
-        if not commits:
-            # Nothing to summarise — still post a short note so the channel knows.
-            summary = f"_ไม่มี commit ในวันที่ {resolved} ({repo}@{branch})_"
-        else:
-            if not groq_api_key:
-                raise NewsError("GROQ_API_KEY not set")
-            log.info("[2/3] Summarising with Groq (%s)...", model)
-            summary = summarize(commits, repo, branch, resolved,
-                                groq_api_key, model, custom_prompt)
-
         if not discord_webhook:
             raise NewsError("DISCORD_WEBHOOK_URL not set")
-        log.info("[3/3] Posting to Discord...")
+        log.info("[2/2] Posting to Discord...")
         post_discord(discord_webhook, summary)
         result.summary = summary
         result.status = "success"

@@ -28,19 +28,15 @@ from news import run  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Fetch GitHub commits → summarize → post to Discord.")
+    p = argparse.ArgumentParser(description="Fetch GitHub commits → post name + link to Discord.")
     p.add_argument("date", nargs="?", default="",
                    help="Date YYYY-MM-DD (default: yesterday ICT)")
     p.add_argument("--repo", default=os.environ.get("GITHUB_REPO", "odoo/odoo"),
                    help="GitHub repo owner/name (env: GITHUB_REPO)")
     p.add_argument("--branch", default=os.environ.get("GITHUB_BRANCH", "18.0"),
-                   help="Branch (env: GITHUB_BRANCH)")
-    p.add_argument("--model", default=os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
-                   help="Groq model (env: GROQ_MODEL)")
-    p.add_argument("--custom-prompt", default=os.environ.get("CUSTOM_PROMPT", ""),
-                   help="Override prompt template (env: CUSTOM_PROMPT)")
+                    help="Branch (env: GITHUB_BRANCH)")
     p.add_argument("--dry-run", action="store_true",
-                   help="Fetch + summarise without posting to Discord")
+                   help="Fetch without posting to Discord")
     p.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     return p
 
@@ -58,11 +54,8 @@ def main(argv: list[str] | None = None) -> int:
         repo=args.repo,
         branch=args.branch,
         date=args.date,
-        groq_api_key=os.environ.get("GROQ_API_KEY", ""),
         discord_webhook=os.environ.get("DISCORD_WEBHOOK_URL", ""),
         github_token=os.environ.get("GITHUB_TOKEN", ""),
-        model=args.model,
-        custom_prompt=args.custom_prompt,
         dry_run=args.dry_run,
     )
 

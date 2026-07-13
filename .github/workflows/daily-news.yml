@@ -2,8 +2,8 @@ name: Odoo Daily News
 
 on:
   schedule:
-    # 20:00 UTC = 03:00 ICT (Asia/Bangkok) — 4 hours earlier than before
-    - cron: "0 20 * * *"
+    # 00:00 UTC = 07:00 ICT (Asia/Bangkok)
+    - cron: "0 0 * * *"
   workflow_dispatch:
     inputs:
       date:

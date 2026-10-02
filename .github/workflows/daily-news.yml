@@ -30,6 +30,11 @@ on:
 permissions:
   contents: read
 
+# Serialise sends and history updates, including manual runs.
+concurrency:
+  group: daily-news
+  cancel-in-progress: false
+
 jobs:
   resolve-targets:
     runs-on: ubuntu-latest
@@ -73,3 +78,38 @@ jobs:
             --repo "${{ matrix.target.repo }}" \
             --branch "${{ matrix.target.branch }}" \
             ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
+
+  record-history:
+    needs: daily-news
+    if: ${{ needs.daily-news.result == 'success' && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Get the current default branch after all targets have been sent.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Record last successful Discord send
+        run: |
+          python3 - <<'PY'
+          import json
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          history = {
+              "sent_at": datetime.now(ZoneInfo("Asia/Bangkok")).isoformat(timespec="seconds"),
+              "status": "sent",
+          }
+          Path("history.json").write_text(json.dumps(history) + "\n", encoding="utf-8")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add history.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "[LOG] record successful Discord send"
+          git push

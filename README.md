@@ -23,7 +23,23 @@ Fetch GitHub commits → post commit name + PR link to Discord.
 Go to **Actions → Odoo Daily News → Run workflow**
 
 - **First time:** tick `dry_run` to test without posting to Discord
-- **After that:** leave unticked → posts daily at 00:00 UTC automatically
+- **After that:** leave unticked → posts daily at 07:30 ICT (00:30 UTC) automatically
+
+### Delivery history
+
+After all targets are successfully sent to Discord, the workflow overwrites
+`history.json` with the latest send time in Asia/Bangkok and `"status": "sent"`,
+then commits it to the default branch. Dry-runs and failed sends do not update it.
+The initial `"not_recorded"` status means no send has been recorded yet.
+
+Only the latest successful send is kept, so the file stays under 100 bytes even
+after years of use. Git commit history still grows by one small commit per send.
+These delivery records also keep the repository active for scheduled workflows.
+
+The history job uses GitHub's built-in token with `contents: write`; no extra
+secret is needed. The default branch must allow this bot to push. If the workflow
+was already disabled for inactivity, enable it once under **Actions → Odoo Daily
+News → Enable workflow** after deploying this change.
 
 ## Output format
 
